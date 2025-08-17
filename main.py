@@ -171,10 +171,10 @@ class StudentAttendanceSystem:
                     return
                 else:
                     st.warning("لم يتم التعرف على كود الطالب، حاول مرة أخرى")
-                
-        except Exception as e:
-            st.error(f"خطأ في المسح: {str(e)}")
-    
+                    
+                except Exception as e:
+                    st.error(f"خطأ في المسح: {str(e)}")
+            
    
     
     def process_student_attendance(self, student_id, welcome_placeholder):
@@ -505,4 +505,5 @@ class StudentAttendanceSystem:
 if __name__ == "__main__":
 
     system = StudentAttendanceSystem()
+
 
