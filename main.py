@@ -7,6 +7,8 @@ from io import BytesIO
 import plotly.express as px
 import os
 import time
+import cv2
+import numpy as np
 
 class StudentAttendanceSystem:
     def __init__(self):
@@ -143,33 +145,32 @@ class StudentAttendanceSystem:
             self.view_analytics_tab()
 
     def scan_qr_tab(self):
-    st.header("📷 تسجيل حضور الطالب")
-    welcome_placeholder = st.empty()
-    
-    img_file = st.camera_input("امسح كود الطالب", key="qr_scanner")
-    
-    if img_file is not None:
-        try:
-            # محاولة استخدام OpenCV إذا فشل pyzbar
-            import cv2
-            import numpy as np
-            
-            # تحويل الصورة إلى مصفوفة numpy
-            img = Image.open(img_file)
-            frame = np.array(img)
-            
-            # تحويل إلى تدرج الرمادي
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # اكتشاف QR Code
-            detector = cv2.QRCodeDetector()
-            data, vertices, _ = detector.detectAndDecode(gray)
-            
-            if data:
-                self.process_student_attendance(data.strip(), welcome_placeholder)
-                return
-            else:
-                st.warning("لم يتم التعرف على كود الطالب، حاول مرة أخرى")
+        st.header("📷 تسجيل حضور الطالب")
+        welcome_placeholder = st.empty()
+        
+        img_file = st.camera_input("امسح كود الطالب", key="qr_scanner")
+        
+        if img_file is not None:
+            try:
+                # محاولة استخدام OpenCV إذا فشل pyzbar
+               
+                
+                # تحويل الصورة إلى مصفوفة numpy
+                img = Image.open(img_file)
+                frame = np.array(img)
+                
+                # تحويل إلى تدرج الرمادي
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                # اكتشاف QR Code
+                detector = cv2.QRCodeDetector()
+                data, vertices, _ = detector.detectAndDecode(gray)
+                
+                if data:
+                    self.process_student_attendance(data.strip(), welcome_placeholder)
+                    return
+                else:
+                    st.warning("لم يتم التعرف على كود الطالب، حاول مرة أخرى")
                 
         except Exception as e:
             st.error(f"خطأ في المسح: {str(e)}")
@@ -504,3 +505,4 @@ class StudentAttendanceSystem:
 if __name__ == "__main__":
 
     system = StudentAttendanceSystem()
+
