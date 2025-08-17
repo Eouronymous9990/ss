@@ -7,8 +7,6 @@ from io import BytesIO
 import plotly.express as px
 import os
 import time
-import cv2
-import numpy as np
 
 class StudentAttendanceSystem:
     def __init__(self):
@@ -143,41 +141,26 @@ class StudentAttendanceSystem:
             self.manage_students_tab()
         with tabs[3]:
             self.view_analytics_tab()
-
     
-def scan_qr_tab(self):
-    st.header("📷 تسجيل حضور الطالب")
-    welcome_placeholder = st.empty()
-    
-    img_file = st.camera_input("امسح كود الطالب", key="qr_scanner")
-    
-    if img_file is not None:
-        try:
-            # محاولة استخدام OpenCV إذا فشل pyzbar
-            import cv2
-            import numpy as np
-            
-            # تحويل الصورة إلى مصفوفة numpy
-            img = Image.open(img_file)
-            frame = np.array(img)
-            
-            # تحويل إلى تدرج الرمادي
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # اكتشاف QR Code
-            detector = cv2.QRCodeDetector()
-            data, vertices, _ = detector.detectAndDecode(gray)
-            
-            if data:
-                self.process_student_attendance(data.strip(), welcome_placeholder)
-                return
-            else:
+    def scan_qr_tab(self):
+        st.header("📷 تسجيل حضور الطالب")
+        welcome_placeholder = st.empty()
+        
+        img_file = st.camera_input("امسح كود الطالب", key="qr_scanner")
+        
+        if img_file is not None:
+            try:
+                from pyzbar.pyzbar import decode
+                img = Image.open(img_file)
+                qr_codes = decode(img)
+                if qr_codes:
+                    for qr in qr_codes:
+                        qr_data = qr.data.decode('utf-8').strip()
+                        self.process_student_attendance(qr_data, welcome_placeholder)
+                        return
                 st.warning("لم يتم التعرف على كود الطالب، حاول مرة أخرى")
-                
-        except Exception as e:
-            st.error(f"خطأ في المسح: {str(e)}")
-            
-   
+            except Exception as e:
+                st.error(f"خطأ في المسح: {e}")
     
     def process_student_attendance(self, student_id, welcome_placeholder):
         if student_id in self.df['الكود'].values:
@@ -505,8 +488,8 @@ def scan_qr_tab(self):
             st.warning("لا توجد بيانات متاحة للعرض")
 
 if __name__ == "__main__":
-
     system = StudentAttendanceSystem()
+
 
 
 
