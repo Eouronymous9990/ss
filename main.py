@@ -106,7 +106,7 @@ class StudentAttendanceSystem:
         base_columns = [
             'الكود',
             'الاسم', 
-            'رقم_الهاتf',
+            'رقم_الهاتف',
             'ولي_الامر',
             'الحصص_الحاضرة',
             'تاريخ_التسجيل',
@@ -750,4 +750,5 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
+
 
