@@ -9,6 +9,7 @@ import os
 import time
 import numpy as np
 import cv2
+import re
 
 
 class StudentAttendanceSystem:
@@ -34,6 +35,11 @@ class StudentAttendanceSystem:
                 if not self.groups_df:
                     self.initialize_default_group()
                 else:
+                    # تصحيح الأعمدة إذا كان هناك خطأ إملائي
+                    for group_name, df in self.groups_df.items():
+                        if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
+                            df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
+                    
                     # توحيد أسماء الأعمدة لكل مجموعة
                     for group_name, df in self.groups_df.items():
                         # إنشاء الأعمدة الأساسية
@@ -43,6 +49,7 @@ class StudentAttendanceSystem:
                             'رقم_الهاتف',
                             'ولي_الامر',
                             'الحصص_الحاضرة',
+                            'تواريخ_الحضور',
                             'تاريخ_التسجيل',
                             'ملاحظات',
                             'الاختبارات'
@@ -68,6 +75,9 @@ class StudentAttendanceSystem:
                             for month in self.months:
                                 if month not in df.columns:
                                     df[month] = False
+                                    
+                            if 'تواريخ_الحضور' not in df.columns:
+                                df['تواريخ_الحضور'] = ''
                         else:
                             # التأكد من أن الأعمدة مرتبة بشكل صحيح
                             df = df[columns]
@@ -82,6 +92,9 @@ class StudentAttendanceSystem:
                             
                         if 'الاختبارات' not in df.columns:
                             df['الاختبارات'] = ''
+                            
+                        if 'تواريخ_الحضور' not in df.columns:
+                            df['تواريخ_الحضور'] = ''
                             
                         # التأكد من أن أعمدة الأشهر من النوع المنطقي
                         for month in self.months:
@@ -109,6 +122,7 @@ class StudentAttendanceSystem:
             'رقم_الهاتف',
             'ولي_الامر',
             'الحصص_الحاضرة',
+            'تواريخ_الحضور',
             'تاريخ_التسجيل',
             'ملاحظات',
             'الاختبارات'
@@ -205,6 +219,14 @@ class StudentAttendanceSystem:
                 border-radius: 5px;
                 text-align: center;
             }
+            .attendance-dates {
+                max-height: 200px;
+                overflow-y: auto;
+                background-color: #2A2A2A;
+                padding: 10px;
+                border-radius: 5px;
+                margin-top: 10px;
+            }
         </style>
         """, unsafe_allow_html=True)
         
@@ -233,6 +255,7 @@ class StudentAttendanceSystem:
                         'رقم_الهاتف',
                         'ولي_الامر',
                         'الحصص_الحاضرة',
+                        'تواريخ_الحضور',
                         'تاريخ_التسجيل',
                         'ملاحظات',
                         'الاختبارات'
@@ -320,10 +343,21 @@ class StudentAttendanceSystem:
             if st.session_state[f'last_attendance_{student_id}'] != st.session_state.last_processed_image:
                 # تحديث عدد الحصص
                 df.loc[df['الكود'] == student_id, 'الحصص_الحاضرة'] += 1
+                
+                # تسجيل تاريخ الحضور
+                current_date = date.today().strftime("%Y-%m-%d")
+                current_presence = student_row['تواريخ_الحضور'] if pd.notna(student_row['تواريخ_الحضور']) else ""
+                
+                if current_presence:
+                    new_presence = f"{current_presence}; {current_date}"
+                else:
+                    new_presence = current_date
+                    
+                df.loc[df['الكود'] == student_id, 'تواريخ_الحضور'] = new_presence
+                
                 self.groups_df[self.current_group] = df
                 self.save_data()
                 
-                # حفظ إن الصورة دي اتعملت لهذا الطالب
                 st.session_state[f'last_attendance_{student_id}'] = st.session_state.last_processed_image
             
             # عرض معلومات الطالب
@@ -332,11 +366,58 @@ class StudentAttendanceSystem:
                 <div style='font-size: 48px;'>مرحباً</div>
                 <div style='font-size: 56px;'>{student_row['الاسم']}</div>
                 <div style='font-size: 24px; margin-top: 20px;'>
-                    الحصص الحاضرة: <span style='color: #FFD700;'>{student_row['الحصص_الحاضرة'] + 1}</span>
+                    الحصص الحاضرة: <span style='color: #FFD700;'>{int(student_row['الحصص_الحاضرة']) + 1}</span>
                 </div>
             </div>
             """
             welcome_placeholder.markdown(welcome_html, unsafe_allow_html=True)
+            
+            # عرض تفاصيل الطالب
+            st.markdown('<div class="student-info">', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### المعلومات الشخصية")
+                st.markdown(f"""
+                - **الكود**: {student_row['الكود']}
+                - **الاسم**: {student_row['الاسم']}
+                - **رقم الهاتف**: {student_row['رقم_الهاتف']}
+                - **ولي الأمر**: {student_row['ولي_الامر']}
+                - **تاريخ التسجيل**: {student_row['تاريخ_التسجيل']}
+                """)
+                
+            with col2:
+                st.markdown("### الحضور والدفع")
+                months_paid = [month for month in self.months if student_row[month]]
+                months_display = [month.replace('_', ' ') for month in months_paid]
+                
+                st.markdown(f"""
+                - **الحصص الحاضرة**: {int(student_row['الحصص_الحاضرة']) + 1}
+                - **الأشهر المدفوعة**: {', '.join(months_display) if months_paid else 'لا يوجد'}
+                """)
+            
+            # عرض تواريخ الحضور
+            if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
+                st.markdown("### تواريخ الحضور")
+                dates = student_row['تواريخ_الحضور'].split(';')
+                st.markdown('<div class="attendance-dates">', unsafe_allow_html=True)
+                for i, date_str in enumerate(dates, 1):
+                    if date_str.strip():
+                        st.markdown(f"- الحصة {i}: {date_str.strip()}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # عرض نتائج الاختبارات
+            if pd.notna(student_row['الاختبارات']) and student_row['الاختبارات'] != '':
+                st.markdown("### نتائج الاختبارات")
+                tests = student_row['الاختبارات'].split(';')
+                for test in tests:
+                    if test.strip():
+                        st.markdown(f"- {test.strip()}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            welcome_placeholder.error("❌ كود الطالب غير مسجل في النظام")
     
     def create_student_tab(self):
         st.header(f"➕ تسجيل طالب جديد - مجموعة {self.current_group}")
@@ -373,7 +454,8 @@ class StudentAttendanceSystem:
             
             # إظهار حالة الدفع (الكل غير مدفوع باستثناء شهر التسجيل)
             st.subheader("حالة الدفع للأشهر")
-            st.info(f"سيتم تحديد شهر {current_month.replace('_', ' ')} تلقائياً كمدفوع بناءً على تاريخ التسجيل")
+            if current_month:
+                st.info(f"سيتم تحديد شهر {current_month.replace('_', ' ')} تلقائياً كمدفوع بناءً على تاريخ التسجيل")
             
             if st.form_submit_button("تسجيل الطالب"):
                 if student_name and student_id:
@@ -414,7 +496,7 @@ class StudentAttendanceSystem:
                             """)
                 else:
                     st.error("الرجاء إدخال اسم الطالب وكود الطالب")
-
+    
     def create_student(self, student_id, student_name, phone, parent_phone, registration_date, notes, month_status):
         # إنشاء QR Code
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
@@ -438,6 +520,7 @@ class StudentAttendanceSystem:
             'رقم_الهاتف': phone,
             'ولي_الامر': parent_phone,
             'الحصص_الحاضرة': 0,
+            'تواريخ_الحضور': '',
             'تاريخ_التسجيل': registration_date,
             'ملاحظات': notes,
             'الاختبارات': ''
@@ -462,6 +545,32 @@ class StudentAttendanceSystem:
         
         return img_bytes
     
+    def search_students(self, query, search_by="name"):
+        df = self.groups_df[self.current_group]
+        
+        if search_by == "name":
+            # البحث بأسماء الطلاب مع الاقتراحات
+            all_names = df['الاسم'].dropna().unique()
+            matches = [name for name in all_names if query.lower() in name.lower()]
+            return matches
+        else:
+            # البحث بأكواد الطلاب مع الاقتراحات
+            all_codes = df['الكود'].dropna().unique().astype(str)
+            matches = [code for code in all_codes if query.lower() in code.lower()]
+            return matches
+    
+    def generate_qr_code(self, student_id):
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(student_id)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        img_bytes = BytesIO()
+        qr_img.save(img_bytes, format="PNG")
+        img_bytes.seek(0)
+        
+        return img_bytes
+    
     def manage_students_tab(self):
         st.header(f"🔄 إدارة الطلاب - مجموعة {self.current_group}")
         
@@ -471,15 +580,25 @@ class StudentAttendanceSystem:
             # قسم البحث عن الطالب
             st.subheader("بحث عن الطالب")
             
-            # خيارات البحث: بالكود أو بالاسم
-            search_option = st.radio("ابحث باستخدام:", ["الكود", "الاسم"], horizontal=True)
+            # خيارات البحث: بالكود أو بالاسم مع البحث الذكي
+            search_option = st.radio("ابحث باستخدام:", ["الكود", "الاسم"], horizontal=True, key="manage_search")
+            
+            student_data = pd.DataFrame()
             
             if search_option == "الكود":
-                student_id = st.selectbox("اختر كود الطالب", df['الكود'].unique())
-                student_data = df[df['الكود'] == student_id] if student_id else pd.DataFrame()
+                search_query = st.text_input("اكتب كود الطالب", key="code_search_manage")
+                if search_query:
+                    suggestions = self.search_students(search_query, "code")
+                    if suggestions:
+                        selected_code = st.selectbox("الاقتراحات", suggestions, key="code_suggestions_manage")
+                        student_data = df[df['الكود'] == selected_code] if selected_code else pd.DataFrame()
             else:
-                student_name = st.selectbox("اختر اسم الطالب", df['الاسم'].unique())
-                student_data = df[df['الاسم'] == student_name] if student_name else pd.DataFrame()
+                search_query = st.text_input("اكتب اسم الطالب", key="name_search_manage")
+                if search_query:
+                    suggestions = self.search_students(search_query, "name")
+                    if suggestions:
+                        selected_name = st.selectbox("الاقتراحات", suggestions, key="name_suggestions_manage")
+                        student_data = df[df['الاسم'] == selected_name] if selected_name else pd.DataFrame()
             
             if not student_data.empty:
                 student_row = student_data.iloc[0]
@@ -508,7 +627,7 @@ class StudentAttendanceSystem:
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # قسم إدارة الحضور والدفع والاختبارات
-                tab1, tab2, tab3 = st.tabs(["الحضور", "الدفع", "الاختبارات"])
+                tab1, tab2, tab3, tab4 = st.tabs(["الحضور", "الدفع", "الاختبارات", "استرجاع QR Code"])
                 
                 with tab1:
                     st.subheader("إدارة الحضور")
@@ -516,6 +635,18 @@ class StudentAttendanceSystem:
                     with col1:
                         if st.button("➕ تسجيل حضور إضافي"):
                             df.loc[df['الكود'] == student_row['الكود'], 'الحصص_الحاضرة'] += 1
+                            
+                            # تسجيل تاريخ الحضور
+                            current_date = date.today().strftime("%Y-%m-%d")
+                            current_presence = student_row['تواريخ_الحضور'] if pd.notna(student_row['تواريخ_الحضور']) else ""
+                            
+                            if current_presence:
+                                new_presence = f"{current_presence}; {current_date}"
+                            else:
+                                new_presence = current_date
+                                
+                            df.loc[df['الكود'] == student_row['الكود'], 'تواريخ_الحضور'] = new_presence
+                            
                             self.groups_df[self.current_group] = df
                             self.save_data()
                             st.success("تم تسجيل الحضور بنجاح!")
@@ -526,6 +657,16 @@ class StudentAttendanceSystem:
                         if st.button("➖ خصم حصة حضور"):
                             if student_row['الحصص_الحاضرة'] > 0:
                                 df.loc[df['الكود'] == student_row['الكود'], 'الحصص_الحاضرة'] -= 1
+                                
+                                # إزالة آخر تاريخ حضور
+                                if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
+                                    dates = student_row['تواريخ_الحضور'].split(';')
+                                    if len(dates) > 1:
+                                        new_dates = ';'.join(dates[:-1])
+                                    else:
+                                        new_dates = ''
+                                    df.loc[df['الكود'] == student_row['الكود'], 'تواريخ_الحضور'] = new_dates
+                                
                                 self.groups_df[self.current_group] = df
                                 self.save_data()
                                 st.success("تم خصم الحصة بنجاح!")
@@ -598,8 +739,31 @@ class StudentAttendanceSystem:
                             st.rerun()
                         else:
                             st.warning("الرجاء إدخال اسم الاختبار والدرجة")
+                
+                with tab4:
+                    st.subheader("استرجاع QR Code للطالب")
+                    
+                    if st.button("🎫 إنشاء QR Code"):
+                        qr_img = self.generate_qr_code(student_row['الكود'])
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(qr_img, caption=f"كود الطالب {student_row['الاسم']}", width=300)
+                        with col2:
+                            # تحويل الصورة إلى bytes للتحميل
+                            img_bytes = BytesIO()
+                            Image.open(qr_img).save(img_bytes, format="PNG")
+                            img_bytes.seek(0)
+                            
+                            st.download_button(
+                                label="📥 تحميل QR Code",
+                                data=img_bytes,
+                                file_name=f"qr_code_{student_row['الكود']}.png",
+                                mime="image/png"
+                            )
             else:
-                st.warning("لا يوجد طالب بهذا الكود/الاسم")
+                if search_query:
+                    st.warning("لا يوجد طالب بهذا البحث")
         else:
             st.warning("لا يوجد طلاب مسجلين بعد")
     
@@ -618,15 +782,25 @@ class StudentAttendanceSystem:
                     st.markdown("---")
                     st.subheader("🔍 البحث عن طالب معين")
                     
-                    # خيارات البحث: بالكود أو بالاسم
+                    # خيارات البحث: بالكود أو بالاسم مع البحث الذكي
                     search_option = st.radio(f"ابحث باستخدام في {group_name}:", ["الكود", "الاسم"], horizontal=True, key=f"search_{group_name}")
                     
+                    student_data = pd.DataFrame()
+                    
                     if search_option == "الكود":
-                        student_id = st.selectbox("اختر كود الطالب", df['الكود'].unique(), key=f"code_select_{group_name}")
-                        student_data = df[df['الكود'] == student_id] if student_id else pd.DataFrame()
+                        search_query = st.text_input("اكتب كود الطالب", key=f"code_search_{group_name}")
+                        if search_query:
+                            suggestions = self.search_students(search_query, "code")
+                            if suggestions:
+                                selected_code = st.selectbox("الاقتراحات", suggestions, key=f"code_suggestions_{group_name}")
+                                student_data = df[df['الكود'] == selected_code] if selected_code else pd.DataFrame()
                     else:
-                        student_name = st.selectbox("اختر اسم الطالب", df['الاسم'].unique(), key=f"name_select_{group_name}")
-                        student_data = df[df['الاسم'] == student_name] if student_name else pd.DataFrame()
+                        search_query = st.text_input("اكتب اسم الطالب", key=f"name_search_{group_name}")
+                        if search_query:
+                            suggestions = self.search_students(search_query, "name")
+                            if suggestions:
+                                selected_name = st.selectbox("الاقتراحات", suggestions, key=f"name_suggestions_{group_name}")
+                                student_data = df[df['الاسم'] == selected_name] if selected_name else pd.DataFrame()
                     
                     if not student_data.empty:
                         student_row = student_data.iloc[0]
@@ -660,6 +834,16 @@ class StudentAttendanceSystem:
                                 st.markdown("**الأشهر غير المدفوعة:**")
                                 for month in months_not_paid:
                                     st.markdown(f"- {month.replace('_', ' ')} ❌")
+                        
+                        # عرض تواريخ الحضور
+                        if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
+                            st.markdown("#### تواريخ الحضور")
+                            dates = student_row['تواريخ_الحضور'].split(';')
+                            st.markdown('<div class="attendance-dates">', unsafe_allow_html=True)
+                            for i, date_str in enumerate(dates, 1):
+                                if date_str.strip():
+                                    st.markdown(f"- الحصة {i}: {date_str.strip()}")
+                            st.markdown('</div>', unsafe_allow_html=True)
                         
                         # عرض نتائج الاختبارات
                         if pd.notna(student_row['الاختبارات']) and student_row['الاختبارات'] != '':
