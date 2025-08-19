@@ -750,4 +750,4 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
-      
+
