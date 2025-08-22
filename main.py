@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import date
-from PIL import Image
-import numpy as np
-import cv2
+from datetime import date, datetime
+from dateutil.relativedelta import relativedelta
 import qrcode
+from PIL import Image
 from io import BytesIO
-import time
 import plotly.express as px
+import numpy as np
+import os
+import time
 
-# تأكد من إضافة هذه الاستيرادات في الأعلى
 
+import cv2
 class StudentAttendanceSystem:
     def __init__(self):
         st.set_page_config(page_title="نظام حضور الطلاب", layout="wide", page_icon="🎓")
@@ -40,8 +40,8 @@ class StudentAttendanceSystem:
                 else:
                     # تصحيح الأعمدة إذا كان هناك خطأ إملائي
                     for group_name, df in self.groups_df.items():
-                        if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
-                            df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
+                        if 'رقم_الهاتف' in df.columns and 'رقم_الهاتف' not in df.columns:
+                            df.rename(columns={'رقم_الهاتف': 'رقم_الهاتف'}, inplace=True)
                     
                     # توحيد أسماء الأعمدة لكل مجموعة
                     for group_name, df in self.groups_df.items():
@@ -120,9 +120,6 @@ class StudentAttendanceSystem:
                 self.initialize_default_group()
         else:
             self.initialize_default_group()
-
-    # ... باقي الكود بدون تغيير ...
-
 
     def initialize_default_group(self):
         # إنشاء الأعمدة الأساسية
@@ -237,6 +234,10 @@ class StudentAttendanceSystem:
                 border-radius: 5px;
                 margin-top: 10px;
             }
+            .delete-btn {
+                background-color: #ff4b4b !important;
+                color: white !important;
+            }
         </style>
         """, unsafe_allow_html=True)
         
@@ -341,18 +342,26 @@ class StudentAttendanceSystem:
             st.rerun()
     
     def process_student_attendance(self, student_id, welcome_placeholder):
-        df = self.groups_df[self.current_group]
+        # البحث عن الطالب في جميع المجموعات
+        student_found = False
+        student_group = None
+        student_row = None
         
-        if student_id in df['الكود'].values:
-            student_row = df[df['الكود'] == student_id].iloc[0]
-            
+        for group_name, df in self.groups_df.items():
+            if student_id in df['الكود'].values:
+                student_found = True
+                student_group = group_name
+                student_row = df[df['الكود'] == student_id].iloc[0]
+                break
+        
+        if student_found:
             # نتأكد إن الصورة هذه ما اتعملتش قبل كدة
             if f'last_attendance_{student_id}' not in st.session_state:
                 st.session_state[f'last_attendance_{student_id}'] = None
             
             if st.session_state[f'last_attendance_{student_id}'] != st.session_state.last_processed_image:
                 # تحديث عدد الحصص
-                df.loc[df['الكود'] == student_id, 'الحصص_الحاضرة'] += 1
+                self.groups_df[student_group].loc[self.groups_df[student_group]['الكود'] == student_id, 'الحصص_الحاضرة'] += 1
                 
                 # تسجيل تاريخ الحضور
                 current_date = date.today().strftime("%Y-%m-%d")
@@ -363,9 +372,8 @@ class StudentAttendanceSystem:
                 else:
                     new_presence = current_date
                     
-                df.loc[df['الكود'] == student_id, 'تواريخ_الحضور'] = new_presence
+                self.groups_df[student_group].loc[self.groups_df[student_group]['الكود'] == student_id, 'تواريخ_الحضور'] = new_presence
                 
-                self.groups_df[self.current_group] = df
                 self.save_data()
                 
                 st.session_state[f'last_attendance_{student_id}'] = st.session_state.last_processed_image
@@ -376,6 +384,7 @@ class StudentAttendanceSystem:
                 <div style='font-size: 48px;'>مرحباً</div>
                 <div style='font-size: 56px;'>{student_row['الاسم']}</div>
                 <div style='font-size: 24px; margin-top: 20px;'>
+                    المجموعة: <span style='color: #FFD700;'>{student_group}</span><br>
                     الحصص الحاضرة: <span style='color: #FFD700;'>{int(student_row['الحصص_الحاضرة']) + 1}</span>
                 </div>
             </div>
@@ -390,6 +399,7 @@ class StudentAttendanceSystem:
             with col1:
                 st.markdown("### المعلومات الشخصية")
                 st.markdown(f"""
+                - **المجموعة**: {student_group}
                 - **الكود**: {student_row['الكود']}
                 - **الاسم**: {student_row['الاسم']}
                 - **رقم الهاتف**: {student_row['رقم_الهاتف']}
@@ -430,12 +440,16 @@ class StudentAttendanceSystem:
             welcome_placeholder.error("❌ كود الطالب غير مسجل في النظام")
     
     def create_student_tab(self):
-        st.header(f"➕ تسجيل طالب جديد - مجموعة {self.current_group}")
+        st.header(f"➕ تسجيل طالب جديد")
         
         with st.form("student_form"):
             col1, col2 = st.columns(2)
             
             with col1:
+                # اختيار المجموعة
+                group_options = list(self.groups_df.keys())
+                selected_group = st.selectbox("اختر المجموعة", group_options)
+                
                 student_name = st.text_input("اسم الطالب بالكامل", placeholder="أدخل الاسم ثلاثي")
                 student_id = st.text_input("كود الطالب", placeholder="رقم فريد لكل طالب")
                 phone = st.text_input("رقم هاتف الطالب", placeholder="01012345678")
@@ -469,7 +483,7 @@ class StudentAttendanceSystem:
             
             if st.form_submit_button("تسجيل الطالب"):
                 if student_name and student_id:
-                    if student_id in self.groups_df[self.current_group]['الكود'].values:
+                    if student_id in self.groups_df[selected_group]['الكود'].values:
                         st.error("هذا الكود مسجل بالفعل لطالب آخر")
                     else:
                         # إنشاء حالة الدفع (الكل غير مدفوع باستثناء شهر التسجيل)
@@ -484,7 +498,8 @@ class StudentAttendanceSystem:
                             parent_phone,
                             registration_date,
                             notes,
-                            month_status
+                            month_status,
+                            selected_group  # تمرير المجموعة المختارة
                         )
                         
                         st.success("تم تسجيل الطالب بنجاح! ✅")
@@ -497,6 +512,7 @@ class StudentAttendanceSystem:
                             months_paid = [m.replace('_', ' ') for m, paid in month_status.items() if paid]
                             st.markdown(f"""
                             ### بيانات الطالب المسجل:
+                            - **المجموعة**: {selected_group}
                             - **الاسم**: {student_name}
                             - **كود الطالب**: {student_id}
                             - **رقم الهاتف**: {phone}
@@ -507,7 +523,7 @@ class StudentAttendanceSystem:
                 else:
                     st.error("الرجاء إدخال اسم الطالب وكود الطالب")
     
-    def create_student(self, student_id, student_name, phone, parent_phone, registration_date, notes, month_status):
+    def create_student(self, student_id, student_name, phone, parent_phone, registration_date, notes, month_status, group_name):
         # إنشاء QR Code
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(student_id)
@@ -543,12 +559,12 @@ class StudentAttendanceSystem:
         new_row = pd.DataFrame([new_row_data])
         
         # التأكد من أن البيانات الجديدة تحتوي على جميع الأعمدة المطلوبة
-        for col in self.groups_df[self.current_group].columns:
+        for col in self.groups_df[group_name].columns:
             if col not in new_row.columns:
                 new_row[col] = False if col in self.months else ''
         
-        self.groups_df[self.current_group] = pd.concat(
-            [self.groups_df[self.current_group], new_row], 
+        self.groups_df[group_name] = pd.concat(
+            [self.groups_df[group_name], new_row], 
             ignore_index=True
         )
         self.save_data()
@@ -637,7 +653,7 @@ class StudentAttendanceSystem:
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # قسم إدارة الحضور والدفع والاختبارات
-                tab1, tab2, tab3, tab4 = st.tabs(["الحضور", "الدفع", "الاختبارات", "استرجاع QR Code"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["الحضور", "الدفع", "الاختبارات", "استرجاع QR Code", "حذف الطالب"])
                 
                 with tab1:
                     st.subheader("إدارة الحضور")
@@ -771,6 +787,24 @@ class StudentAttendanceSystem:
                                 file_name=f"qr_code_{student_row['الكود']}.png",
                                 mime="image/png"
                             )
+                
+                with tab5:
+                    st.subheader("حذف الطالب نهائياً")
+                    st.warning("⚠️ تنبيه: هذا الإجراء لا يمكن التراجع عنه!")
+                    
+                    # تأكيد الحذف
+                    confirm_delete = st.checkbox("أنا أدرك أن هذا الإجراء سيحذف الطالب نهائياً", key="confirm_delete")
+                    
+                    if confirm_delete:
+                        if st.button("🗑️ حذف الطالب نهائياً", key="delete_student_btn", 
+                                    help="سيتم حذف الطالب نهائياً من النظام"):
+                            # حذف الطالب من DataFrame
+                            self.groups_df[self.current_group] = df[df['الكود'] != student_row['الكود']]
+                            self.save_data()
+                            st.success("تم حذف الطالب بنجاح!")
+                            time.sleep(2)
+                            st.rerun()
+            
             else:
                 if search_query:
                     st.warning("لا يوجد طالب بهذا البحث")
@@ -944,4 +978,3 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
-
