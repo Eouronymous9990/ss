@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
-import qrcode
-from PIL import Image
-from io import BytesIO
-import plotly.express as px
 import os
-import time
+from datetime import date
+from PIL import Image
 import numpy as np
 import cv2
-import re
+import qrcode
+from io import BytesIO
+import time
+import plotly.express as px
 
+# تأكد من إضافة هذه الاستيرادات في الأعلى
 
 class StudentAttendanceSystem:
     def __init__(self):
@@ -23,12 +23,15 @@ class StudentAttendanceSystem:
             'نوفمبر_2025', 'ديسمبر_2025', 'يناير_2026', 'فبراير_2026', 
             'مارس_2026', 'أبريل_2026', 'مايو_2026', 'يونيو_2026'
         ]
+        
+        # تحميل البيانات أولاً قبل إعداد الواجهة
         self.load_data()
         self.setup_ui()
     
     def load_data(self):
         if os.path.exists(self.excel_path):
             try:
+                # قراءة جميع الأوراق من ملف الإكسل
                 self.groups_df = pd.read_excel(self.excel_path, sheet_name=None)
                 
                 # إذا كان الملف فارغاً أو به مشاكل
@@ -64,31 +67,35 @@ class StudentAttendanceSystem:
                             existing_data = df.copy()
                             
                             # إنشاء DataFrame جديد بالأعمدة المحدثة
-                            df = pd.DataFrame(columns=columns)
+                            new_df = pd.DataFrame(columns=columns)
                             
                             # نسخ البيانات المتوافقة
                             for col in existing_data.columns:
                                 if col in columns:
-                                    df[col] = existing_data[col]
+                                    new_df[col] = existing_data[col]
                             
                             # تعيين القيم الافتراضية للأعمدة الجديدة
                             for month in self.months:
-                                if month not in df.columns:
-                                    df[month] = False
+                                if month not in new_df.columns:
+                                    new_df[month] = False
                                     
-                            if 'تواريخ_الحضور' not in df.columns:
-                                df['تواريخ_الحضور'] = ''
+                            if 'تواريخ_الحضور' not in new_df.columns:
+                                new_df['تواريخ_الحضور'] = ''
+                                
+                            self.groups_df[group_name] = new_df
                         else:
                             # التأكد من أن الأعمدة مرتبة بشكل صحيح
-                            df = df[columns]
+                            self.groups_df[group_name] = df[columns]
                         
                         # تحويل أنواع البيانات
+                        df = self.groups_df[group_name]
                         df['الكود'] = df['الكود'].astype(str)
                         df['رقم_الهاتف'] = df['رقم_الهاتف'].astype(str)
                         df['ولي_الامر'] = df['ولي_الامر'].astype(str)
                         
                         if 'تاريخ_التسجيل' in df.columns:
-                            df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل']).dt.date
+                            # تحويل التواريخ بشكل صحيح
+                            df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل'], errors='coerce').dt.date
                             
                         if 'الاختبارات' not in df.columns:
                             df['الاختبارات'] = ''
@@ -102,17 +109,20 @@ class StudentAttendanceSystem:
                                 # تحويل القيم النصية إلى منطقية إذا لزم الأمر
                                 if df[month].dtype == 'object':
                                     df[month] = df[month].apply(lambda x: str(x).lower() in ['true', 'yes', '1', 'نعم', 'صحيح', '✅'])
-                                df[month] = df[month].astype(bool)
-                            
-                        self.groups_df[group_name] = df
+                                df[month] = df[month].fillna(False).astype(bool)
                     
                     # تحديد المجموعة الحالية (استخدم الأولى إذا لم تكن محددة)
-                    self.current_group = list(self.groups_df.keys())[0]
+                    if self.current_group is None or self.current_group not in self.groups_df:
+                        self.current_group = list(self.groups_df.keys())[0]
+                        
             except Exception as e:
                 st.error(f"حدث خطأ عند تحميل البيانات: {str(e)}")
                 self.initialize_default_group()
         else:
             self.initialize_default_group()
+
+    # ... باقي الكود بدون تغيير ...
+
 
     def initialize_default_group(self):
         # إنشاء الأعمدة الأساسية
@@ -934,5 +944,4 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
-
 
