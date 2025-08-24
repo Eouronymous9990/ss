@@ -27,128 +27,149 @@ class StudentAttendanceSystem:
         self.setup_ui()
     
     def load_data(self):
-        if os.path.exists(self.excel_path):
-            try:
+        """تحميل البيانات من ملف الإكسل مع معالجة الأخطاء المحسنة"""
+        try:
+            if os.path.exists(self.excel_path):
                 # قراءة جميع الأوراق من ملف الإكسل
                 self.groups_df = pd.read_excel(self.excel_path, sheet_name=None)
                 
                 # إذا كان الملف فارغاً أو به مشاكل
                 if not self.groups_df:
                     self.initialize_default_group()
-                else:
+                    return
+                
+                # معالجة وتصحيح البيانات لكل مجموعة
+                for group_name in list(self.groups_df.keys()):
+                    df = self.groups_df[group_name]
+                    
                     # تصحيح الأعمدة إذا كان هناك خطأ إملائي
-                    for group_name, df in self.groups_df.items():
-                        if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
-                            df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
+                    if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
+                        df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
                     
-                    # توحيد أسماء الأعمدة لكل مجموعة
-                    for group_name, df in self.groups_df.items():
-                        # إنشاء الأعمدة الأساسية
-                        base_columns = [
-                            'الكود',
-                            'الاسم', 
-                            'رقم_الهاتف',
-                            'ولي_الامر',
-                            'الحصص_الحاضرة',
-                            'تواريخ_الحضور',
-                            'تاريخ_التسجيل',
-                            'ملاحظات',
-                            'الاختبارات'
-                        ]
-                        
-                        # إضافة أعمدة الأشهر
-                        columns = base_columns[:5] + self.months + base_columns[5:]
-                        
-                        # إذا كان عدد الأعمدة مختلفاً، نقوم بإعادة تنظيم البيانات
-                        if len(df.columns) != len(columns):
-                            # حفظ البيانات الموجودة
-                            existing_data = df.copy()
-                            
-                            # إنشاء DataFrame جديد بالأعمدة المحدثة
-                            new_df = pd.DataFrame(columns=columns)
-                            
-                            # نسخ البيانات المتوافقة
-                            for col in existing_data.columns:
-                                if col in columns:
-                                    new_df[col] = existing_data[col]
-                            
-                            # تعيين القيم الافتراضية للأعمدة الجديدة
-                            for month in self.months:
-                                if month not in new_df.columns:
-                                    new_df[month] = False
-                                    
-                            if 'تواريخ_الحضور' not in new_df.columns:
-                                new_df['تواريخ_الحضور'] = ''
-                                
-                            self.groups_df[group_name] = new_df
-                        else:
-                            # التأكد من أن الأعمدة مرتبة بشكل صحيح
-                            self.groups_df[group_name] = df[columns]
-                        
-                        # تحويل أنواع البيانات
-                        df = self.groups_df[group_name]
-                        df['الكود'] = df['الكود'].astype(str)
-                        df['رقم_الهاتف'] = df['رقم_الهاتف'].astype(str)
-                        df['ولي_الامر'] = df['ولي_الامر'].astype(str)
-                        
-                        if 'تاريخ_التسجيل' in df.columns:
-                            # تحويل التواريخ بشكل صحيح
-                            df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل'], errors='coerce').dt.date
-                            
-                        if 'الاختبارات' not in df.columns:
-                            df['الاختبارات'] = ''
-                            
-                        if 'تواريخ_الحضور' not in df.columns:
-                            df['تواريخ_الحضور'] = ''
-                            
-                        # التأكد من أن أعمدة الأشهر من النوع المنطقي
-                        for month in self.months:
-                            if month in df.columns:
-                                # تحويل القيم النصية إلى منطقية إذا لزم الأمر
-                                if df[month].dtype == 'object':
-                                    df[month] = df[month].apply(lambda x: str(x).lower() in ['true', 'yes', '1', 'نعم', 'صحيح', '✅'])
-                                df[month] = df[month].fillna(False).astype(bool)
+                    # إنشاء الأعمدة الأساسية المطلوبة
+                    required_columns = [
+                        'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
+                    ] + self.months + [
+                        'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
+                    ]
                     
-                    # تحديد المجموعة الحالية (استخدم الأولى إذا لم تكن محددة)
-                    if self.current_group is None or self.current_group not in self.groups_df:
-                        self.current_group = list(self.groups_df.keys())[0]
-                        
-            except Exception as e:
-                st.error(f"حدث خطأ عند تحميل البيانات: {str(e)}")
+                    # إضافة الأعمدة المفقودة
+                    for col in required_columns:
+                        if col not in df.columns:
+                            if col in self.months:
+                                df[col] = False
+                            elif col == 'الحصص_الحاضرة':
+                                df[col] = 0
+                            else:
+                                df[col] = ''
+                    
+                    # ترتيب الأعمدة بالترتيب الصحيح
+                    df = df[required_columns]
+                    
+                    # تحويل أنواع البيانات
+                    df['الكود'] = df['الكود'].astype(str)
+                    df['الاسم'] = df['الاسم'].astype(str)
+                    df['رقم_الهاتف'] = df['رقم_الهاتف'].astype(str)
+                    df['ولي_الامر'] = df['ولي_الامر'].astype(str)
+                    df['الحصص_الحاضرة'] = pd.to_numeric(df['الحصص_الحاضرة'], errors='coerce').fillna(0).astype(int)
+                    df['تواريخ_الحضور'] = df['تواريخ_الحضور'].astype(str).fillna('')
+                    df['ملاحظات'] = df['ملاحظات'].astype(str).fillna('')
+                    df['الاختبارات'] = df['الاختبارات'].astype(str).fillna('')
+                    
+                    # معالجة تاريخ التسجيل
+                    try:
+                        df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل'], errors='coerce').dt.date
+                        df['تاريخ_التسجيل'] = df['تاريخ_التسجيل'].fillna(date.today())
+                    except:
+                        df['تاريخ_التسجيل'] = date.today()
+                    
+                    # التأكد من أن أعمدة الأشهر من النوع المنطقي
+                    for month in self.months:
+                        df[month] = df[month].astype(bool)
+                    
+                    # تحديث البيانات في المجموعة
+                    self.groups_df[group_name] = df
+                
+                # تحديد المجموعة الحالية
+                if self.current_group is None or self.current_group not in self.groups_df:
+                    self.current_group = list(self.groups_df.keys())[0]
+                
+                print(f"تم تحميل البيانات بنجاح. عدد المجموعات: {len(self.groups_df)}")
+                
+            else:
+                print("ملف البيانات غير موجود، سيتم إنشاء ملف جديد")
                 self.initialize_default_group()
-        else:
+                
+        except Exception as e:
+            print(f"حدث خطأ في تحميل البيانات: {str(e)}")
+            st.error(f"حدث خطأ في تحميل البيانات: {str(e)}")
             self.initialize_default_group()
 
     def initialize_default_group(self):
-        # إنشاء الأعمدة الأساسية
-        base_columns = [
-            'الكود',
-            'الاسم', 
-            'رقم_الهاتف',
-            'ولي_الامر',
-            'الحصص_الحاضرة',
-            'تواريخ_الحضور',
-            'تاريخ_التسجيل',
-            'ملاحظات',
-            'الاختبارات'
+        """إنشاء مجموعة افتراضية جديدة"""
+        required_columns = [
+            'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
+        ] + self.months + [
+            'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
         ]
         
-        # إضافة أعمدة الأشهر
-        columns = base_columns[:5] + self.months + base_columns[5:]
-        
         self.groups_df = {
-            "المجموعة_الافتراضية": pd.DataFrame(columns=columns)
+            "المجموعة_الافتراضية": pd.DataFrame(columns=required_columns)
         }
         self.current_group = "المجموعة_الافتراضية"
+        
+        # حفظ الملف فوراً
         self.save_data()
+        print("تم إنشاء مجموعة افتراضية جديدة")
     
     def save_data(self):
-        with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
-            for group_name, df in self.groups_df.items():
-                df_to_save = df.copy()
-                if 'تاريخ_التسجيل' in df_to_save.columns:
-                    df_to_save['تاريخ_التسجيل'] = df_to_save['تاريخ_التسجيل'].astype(str)
-                df_to_save.to_excel(writer, sheet_name=group_name, index=False)
+        """حفظ البيانات في ملف الإكسل مع معالجة محسنة للأخطاء"""
+        try:
+            # إنشاء نسخة احتياطية من الملف الحالي إذا كان موجود
+            if os.path.exists(self.excel_path):
+                backup_path = f"{self.excel_path}.backup"
+                try:
+                    import shutil
+                    shutil.copy2(self.excel_path, backup_path)
+                except:
+                    pass
+            
+            # حفظ البيانات
+            with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
+                for group_name, df in self.groups_df.items():
+                    # إنشاء نسخة للحفظ
+                    df_to_save = df.copy()
+                    
+                    # تحويل التواريخ لنص للحفظ
+                    if 'تاريخ_التسجيل' in df_to_save.columns:
+                        df_to_save['تاريخ_التسجيل'] = df_to_save['تاريخ_التسجيل'].astype(str)
+                    
+                    # استبدال القيم الفارغة بنصوص فارغة
+                    df_to_save = df_to_save.fillna('')
+                    
+                    # حفظ البيانات في الورقة المناسبة
+                    df_to_save.to_excel(writer, sheet_name=group_name, index=False)
+            
+            print(f"تم حفظ البيانات بنجاح في {self.excel_path}")
+            
+            # التحقق من الحفظ
+            if os.path.exists(self.excel_path):
+                file_size = os.path.getsize(self.excel_path)
+                print(f"حجم الملف المحفوظ: {file_size} بايت")
+            
+        except Exception as e:
+            print(f"خطأ في حفظ البيانات: {str(e)}")
+            st.error(f"خطأ في حفظ البيانات: {str(e)}")
+            
+            # محاولة استعادة النسخة الاحتياطية
+            backup_path = f"{self.excel_path}.backup"
+            if os.path.exists(backup_path):
+                try:
+                    import shutil
+                    shutil.copy2(backup_path, self.excel_path)
+                    print("تم استعادة النسخة الاحتياطية")
+                except:
+                    pass
     
     def setup_ui(self):
         st.markdown("""
@@ -209,37 +230,26 @@ class StudentAttendanceSystem:
                 padding: 20px;
                 margin-bottom: 20px;
             }
-            .group-tabs {
-                margin-bottom: 20px;
-            }
-            .month-grid {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 10px;
-                margin-bottom: 20px;
-            }
-            .month-checkbox {
-                background-color: #2A2A2A;
+            .save-status {
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                background-color: #4CAF50;
+                color: white;
                 padding: 10px;
                 border-radius: 5px;
-                text-align: center;
-            }
-            .attendance-dates {
-                max-height: 200px;
-                overflow-y: auto;
-                background-color: #2A2A2A;
-                padding: 10px;
-                border-radius: 5px;
-                margin-top: 10px;
-            }
-            .delete-btn {
-                background-color: #ff4b4b !important;
-                color: white !important;
+                z-index: 1000;
             }
         </style>
         """, unsafe_allow_html=True)
         
         st.title("🎓 نظام حضور الطلاب")
+        
+        # عرض حالة آخر حفظ
+        if os.path.exists(self.excel_path):
+            last_modified = os.path.getmtime(self.excel_path)
+            last_modified_date = date.fromtimestamp(last_modified)
+            st.info(f"📁 آخر حفظ للبيانات: {last_modified_date}")
         
         # إدارة المجموعات في الشريط الجانبي
         with st.sidebar:
@@ -257,25 +267,16 @@ class StudentAttendanceSystem:
             new_group_name = st.text_input("اسم المجموعة الجديدة")
             if st.button("➕ إضافة مجموعة") and new_group_name:
                 if new_group_name not in self.groups_df:
-                    # إنشاء الأعمدة الأساسية
-                    base_columns = [
-                        'الكود',
-                        'الاسم', 
-                        'رقم_الهاتف',
-                        'ولي_الامر',
-                        'الحصص_الحاضرة',
-                        'تواريخ_الحضور',
-                        'تاريخ_التسجيل',
-                        'ملاحظات',
-                        'الاختبارات'
+                    required_columns = [
+                        'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
+                    ] + self.months + [
+                        'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
                     ]
                     
-                    # إضافة أعمدة الأشهر
-                    columns = base_columns[:5] + self.months + base_columns[5:]
-                    
-                    self.groups_df[new_group_name] = pd.DataFrame(columns=columns)
+                    self.groups_df[new_group_name] = pd.DataFrame(columns=required_columns)
                     self.save_data()
                     st.success(f"تم إنشاء المجموعة '{new_group_name}' بنجاح!")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("هذه المجموعة موجودة بالفعل!")
@@ -288,7 +289,13 @@ class StudentAttendanceSystem:
                     self.current_group = list(self.groups_df.keys())[0]
                     self.save_data()
                     st.success(f"تم حذف المجموعة '{group_to_delete}' بنجاح!")
+                    time.sleep(1)
                     st.rerun()
+            
+            # زر حفظ يدوي
+            if st.button("💾 حفظ البيانات يدوياً"):
+                self.save_data()
+                st.success("تم حفظ البيانات!")
         
         # تبويبات الواجهة الرئيسية
         tabs = st.tabs(["📷 مسح حضور الطالب", "➕ تسجيل طالب جديد", "🔄 إدارة الطلاب", "📊 الإحصائيات"])
@@ -344,46 +351,55 @@ class StudentAttendanceSystem:
         student_found = False
         student_group = None
         student_row = None
+        student_index = None
         
         for group_name, df in self.groups_df.items():
             if student_id in df['الكود'].values:
                 student_found = True
                 student_group = group_name
-                student_row = df[df['الكود'] == student_id].iloc[0]
+                student_index = df[df['الكود'] == student_id].index[0]
+                student_row = df.loc[student_index]
                 break
         
         if student_found:
-            # نتأكد إن الصورة هذه ما اتعملتش قبل كدة
+            # التحقق من عدم تكرار تسجيل الحضور لنفس الصورة
             if f'last_attendance_{student_id}' not in st.session_state:
                 st.session_state[f'last_attendance_{student_id}'] = None
             
             if st.session_state[f'last_attendance_{student_id}'] != st.session_state.last_processed_image:
                 # تحديث عدد الحصص
-                self.groups_df[student_group].loc[self.groups_df[student_group]['الكود'] == student_id, 'الحصص_الحاضرة'] += 1
+                self.groups_df[student_group].loc[student_index, 'الحصص_الحاضرة'] += 1
                 
                 # تسجيل تاريخ الحضور
                 current_date = date.today().strftime("%Y-%m-%d")
-                current_presence = student_row['تواريخ_الحضور'] if pd.notna(student_row['تواريخ_الحضور']) else ""
+                current_presence = student_row['تواريخ_الحضور']
                 
-                if current_presence:
-                    new_presence = f"{current_presence}; {current_date}"
-                else:
+                if pd.isna(current_presence) or current_presence == '' or current_presence == 'nan':
                     new_presence = current_date
+                else:
+                    new_presence = f"{current_presence}; {current_date}"
                     
-                self.groups_df[student_group].loc[self.groups_df[student_group]['الكود'] == student_id, 'تواريخ_الحضور'] = new_presence
+                self.groups_df[student_group].loc[student_index, 'تواريخ_الحضور'] = new_presence
                 
+                # حفظ البيانات فوراً
                 self.save_data()
                 
+                # تسجيل أن هذه الصورة تم معالجتها
                 st.session_state[f'last_attendance_{student_id}'] = st.session_state.last_processed_image
+                
+                print(f"تم تسجيل حضور للطالب {student_id} في المجموعة {student_group}")
+            
+            # إعادة قراءة البيانات المحدثة
+            updated_student_row = self.groups_df[student_group].loc[student_index]
             
             # عرض معلومات الطالب
             welcome_html = f"""
             <div class='welcome-message'>
                 <div style='font-size: 48px;'>مرحباً</div>
-                <div style='font-size: 56px;'>{student_row['الاسم']}</div>
+                <div style='font-size: 56px;'>{updated_student_row['الاسم']}</div>
                 <div style='font-size: 24px; margin-top: 20px;'>
                     المجموعة: <span style='color: #FFD700;'>{student_group}</span><br>
-                    الحصص الحاضرة: <span style='color: #FFD700;'>{int(student_row['الحصص_الحاضرة']) + 1}</span>
+                    الحصص الحاضرة: <span style='color: #FFD700;'>{int(updated_student_row['الحصص_الحاضرة'])}</span>
                 </div>
             </div>
             """
@@ -398,40 +414,42 @@ class StudentAttendanceSystem:
                 st.markdown("### المعلومات الشخصية")
                 st.markdown(f"""
                 - **المجموعة**: {student_group}
-                - **الكود**: {student_row['الكود']}
-                - **الاسم**: {student_row['الاسم']}
-                - **رقم الهاتف**: {student_row['رقم_الهاتف']}
-                - **ولي الأمر**: {student_row['ولي_الامر']}
-                - **تاريخ التسجيل**: {student_row['تاريخ_التسجيل']}
+                - **الكود**: {updated_student_row['الكود']}
+                - **الاسم**: {updated_student_row['الاسم']}
+                - **رقم الهاتف**: {updated_student_row['رقم_الهاتف']}
+                - **ولي الأمر**: {updated_student_row['ولي_الامر']}
+                - **تاريخ التسجيل**: {updated_student_row['تاريخ_التسجيل']}
                 """)
                 
             with col2:
                 st.markdown("### الحضور والدفع")
-                months_paid = [month for month in self.months if student_row[month]]
+                months_paid = [month for month in self.months if updated_student_row[month]]
                 months_display = [month.replace('_', ' ') for month in months_paid]
                 
                 st.markdown(f"""
-                - **الحصص الحاضرة**: {int(student_row['الحصص_الحاضرة']) + 1}
+                - **الحصص الحاضرة**: {int(updated_student_row['الحصص_الحاضرة'])}
                 - **الأشهر المدفوعة**: {', '.join(months_display) if months_paid else 'لا يوجد'}
                 """)
             
             # عرض تواريخ الحضور
-            if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
+            if pd.notna(updated_student_row['تواريخ_الحضور']) and updated_student_row['تواريخ_الحضور'] != '' and updated_student_row['تواريخ_الحضور'] != 'nan':
                 st.markdown("### تواريخ الحضور")
-                dates = student_row['تواريخ_الحضور'].split(';')
+                dates = str(updated_student_row['تواريخ_الحضور']).split(';')
                 st.markdown('<div class="attendance-dates">', unsafe_allow_html=True)
                 for i, date_str in enumerate(dates, 1):
-                    if date_str.strip():
-                        st.markdown(f"- الحصة {i}: {date_str.strip()}")
+                    date_str = date_str.strip()
+                    if date_str and date_str != 'nan':
+                        st.markdown(f"- الحصة {i}: {date_str}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
             # عرض نتائج الاختبارات
-            if pd.notna(student_row['الاختبارات']) and student_row['الاختبارات'] != '':
+            if pd.notna(updated_student_row['الاختبارات']) and updated_student_row['الاختبارات'] != '' and updated_student_row['الاختبارات'] != 'nan':
                 st.markdown("### نتائج الاختبارات")
-                tests = student_row['الاختبارات'].split(';')
+                tests = str(updated_student_row['الاختبارات']).split(';')
                 for test in tests:
-                    if test.strip():
-                        st.markdown(f"- {test.strip()}")
+                    test = test.strip()
+                    if test and test != 'nan':
+                        st.markdown(f"- {test}")
             
             st.markdown('</div>', unsafe_allow_html=True)
         else:
@@ -459,11 +477,9 @@ class StudentAttendanceSystem:
             # تحديد الشهر الحالي بناءً على تاريخ التسجيل
             current_month = None
             if registration_date:
-                # تحويل التاريخ إلى تنسيق الشهر المتوافق مع أسماء الأشهر
                 month_num = registration_date.month
                 year = registration_date.year
                 
-                # إنشاء قائمة بالأشهر مع سنواتها الصحيحة
                 months_mapping = {
                     7: 'يوليو_2025', 8: 'أغسطس_2025', 9: 'سبتمبر_2025', 
                     10: 'أكتوبر_2025', 11: 'نوفمبر_2025', 12: 'ديسمبر_2025',
@@ -473,7 +489,7 @@ class StudentAttendanceSystem:
                 
                 current_month = months_mapping.get(month_num)
             
-            # إظهار حالة الدفع (الكل غير مدفوع باستثناء شهر التسجيل)
+            # إظهار حالة الدفع
             st.subheader("حالة الدفع للأشهر")
             if current_month:
                 st.info(f"سيتم تحديد شهر {current_month.replace('_', ' ')} تلقائياً كمدفوع بناءً على تاريخ التسجيل")
@@ -490,7 +506,7 @@ class StudentAttendanceSystem:
                     if code_exists:
                         st.error("هذا الكود مسجل بالفعل لطالب آخر في إحدى المجموعات")
                     else:
-                        # إنشاء حالة الدفع (الكل غير مدفوع باستثناء شهر التسجيل)
+                        # إنشاء حالة الدفع
                         month_status = {}
                         for month in self.months:
                             month_status[month] = (month == current_month)
@@ -528,68 +544,81 @@ class StudentAttendanceSystem:
                     st.error("الرجاء إدخال اسم الطالب وكود الطالب")
     
     def create_student(self, student_id, student_name, phone, parent_phone, registration_date, notes, month_status, group_name):
-        # إنشاء QR Code
-        qr = qrcode.QRCode(version=1, box_size=10, border=4)
-        qr.add_data(student_id)
-        qr.make(fit=True)
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-        
-        img_bytes = BytesIO()
-        qr_img.save(img_bytes, format="PNG")
-        img_bytes.seek(0)
-        
-        # إعداد حالة الدفع للأشهر
-        payment_status = {}
-        for month in self.months:
-            payment_status[month] = month_status.get(month, False)
-        
-        # إضافة الطالب للبيانات
-        new_row_data = {
-            'الكود': student_id,
-            'الاسم': student_name,
-            'رقم_الهاتف': phone,
-            'ولي_الامر': parent_phone,
-            'الحصص_الحاضرة': 0,
-            'تواريخ_الحضور': '',
-            'تاريخ_التسجيل': registration_date,
-            'ملاحظات': notes,
-            'الاختبارات': ''
-        }
-        
-        # إضافة حالة الدفع لكل شهر
-        for month in self.months:
-            new_row_data[month] = payment_status[month]
-        
-        new_row = pd.DataFrame([new_row_data])
-        
-        # التأكد من أن البيانات الجديدة تحتوي على جميع الأعمدة المطلوبة
-        for col in self.groups_df[group_name].columns:
-            if col not in new_row.columns:
-                new_row[col] = False if col in self.months else ''
-        
-        self.groups_df[group_name] = pd.concat(
-            [self.groups_df[group_name], new_row], 
-            ignore_index=True
-        )
-        self.save_data()
-        
-        return img_bytes
+        """إنشاء طالب جديد مع حفظ فوري للبيانات"""
+        try:
+            # إنشاء QR Code
+            qr = qrcode.QRCode(version=1, box_size=10, border=4)
+            qr.add_data(student_id)
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            
+            img_bytes = BytesIO()
+            qr_img.save(img_bytes, format="PNG")
+            img_bytes.seek(0)
+            
+            # إعداد بيانات الطالب الجديد
+            new_row_data = {
+                'الكود': str(student_id),
+                'الاسم': str(student_name),
+                'رقم_الهاتف': str(phone),
+                'ولي_الامر': str(parent_phone),
+                'الحصص_الحاضرة': 0,
+                'تواريخ_الحضور': '',
+                'تاريخ_التسجيل': registration_date,
+                'ملاحظات': str(notes) if notes else '',
+                'الاختبارات': ''
+            }
+            
+            # إضافة حالة الدفع لكل شهر
+            for month in self.months:
+                new_row_data[month] = month_status.get(month, False)
+            
+            # إضافة الطالب للمجموعة المحددة
+            new_row = pd.DataFrame([new_row_data])
+            
+            # التأكد من ترتيب الأعمدة
+            required_columns = [
+                'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
+            ] + self.months + [
+                'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
+            ]
+            
+            new_row = new_row[required_columns]
+            
+            self.groups_df[group_name] = pd.concat(
+                [self.groups_df[group_name], new_row], 
+                ignore_index=True
+            )
+            
+            # حفظ البيانات فوراً
+            self.save_data()
+            
+            print(f"تم إنشاء الطالب {student_name} بنجاح في المجموعة {group_name}")
+            
+            return img_bytes
+            
+        except Exception as e:
+            print(f"خطأ في إنشاء الطالب: {str(e)}")
+            st.error(f"خطأ في إنشاء الطالب: {str(e)}")
+            return None
     
     def search_students(self, query, search_by="name"):
+        """البحث عن الطلاب في المجموعة الحالية"""
         df = self.groups_df[self.current_group]
         
         if search_by == "name":
             # البحث بأسماء الطلاب مع الاقتراحات
             all_names = df['الاسم'].dropna().unique()
-            matches = [name for name in all_names if query.lower() in name.lower()]
+            matches = [name for name in all_names if query.lower() in str(name).lower()]
             return matches
         else:
             # البحث بأكواد الطلاب مع الاقتراحات
             all_codes = df['الكود'].dropna().unique().astype(str)
-            matches = [code for code in all_codes if query.lower() in code.lower()]
+            matches = [code for code in all_codes if query.lower() in str(code).lower()]
             return matches
     
     def generate_qr_code(self, student_id):
+        """إنشاء QR Code لطالب معين"""
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(student_id)
         qr.make(fit=True)
@@ -632,6 +661,7 @@ class StudentAttendanceSystem:
             
             if not student_data.empty:
                 student_row = student_data.iloc[0]
+                student_index = student_data.index[0]
                 
                 # عرض بيانات الطالب
                 st.markdown('<div class="student-info">', unsafe_allow_html=True)
@@ -664,20 +694,21 @@ class StudentAttendanceSystem:
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("➕ تسجيل حضور إضافي"):
-                            df.loc[df['الكود'] == student_row['الكود'], 'الحصص_الحاضرة'] += 1
+                            # تحديث عدد الحصص
+                            self.groups_df[self.current_group].loc[student_index, 'الحصص_الحاضرة'] += 1
                             
                             # تسجيل تاريخ الحضور
                             current_date = date.today().strftime("%Y-%m-%d")
-                            current_presence = student_row['تواريخ_الحضور'] if pd.notna(student_row['تواريخ_الحضور']) else ""
+                            current_presence = student_row['تواريخ_الحضور']
                             
-                            if current_presence:
-                                new_presence = f"{current_presence}; {current_date}"
-                            else:
+                            if pd.isna(current_presence) or current_presence == '' or current_presence == 'nan':
                                 new_presence = current_date
+                            else:
+                                new_presence = f"{current_presence}; {current_date}"
                                 
-                            df.loc[df['الكود'] == student_row['الكود'], 'تواريخ_الحضور'] = new_presence
+                            self.groups_df[self.current_group].loc[student_index, 'تواريخ_الحضور'] = new_presence
                             
-                            self.groups_df[self.current_group] = df
+                            # حفظ البيانات فوراً
                             self.save_data()
                             st.success("تم تسجيل الحضور بنجاح!")
                             time.sleep(1)
@@ -686,18 +717,19 @@ class StudentAttendanceSystem:
                     with col2:
                         if st.button("➖ خصم حصة حضور"):
                             if student_row['الحصص_الحاضرة'] > 0:
-                                df.loc[df['الكود'] == student_row['الكود'], 'الحصص_الحاضرة'] -= 1
+                                self.groups_df[self.current_group].loc[student_index, 'الحصص_الحاضرة'] -= 1
                                 
                                 # إزالة آخر تاريخ حضور
-                                if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
-                                    dates = student_row['تواريخ_الحضور'].split(';')
+                                current_presence = student_row['تواريخ_الحضور']
+                                if pd.notna(current_presence) and current_presence != '' and current_presence != 'nan':
+                                    dates = str(current_presence).split(';')
                                     if len(dates) > 1:
                                         new_dates = ';'.join(dates[:-1])
                                     else:
                                         new_dates = ''
-                                    df.loc[df['الكود'] == student_row['الكود'], 'تواريخ_الحضور'] = new_dates
+                                    self.groups_df[self.current_group].loc[student_index, 'تواريخ_الحضور'] = new_dates
                                 
-                                self.groups_df[self.current_group] = df
+                                # حفظ البيانات فوراً
                                 self.save_data()
                                 st.success("تم خصم الحصة بنجاح!")
                                 time.sleep(1)
@@ -727,9 +759,9 @@ class StudentAttendanceSystem:
                         
                         if st.form_submit_button("حفظ حالة الدفع"):
                             for month in self.months:
-                                df.loc[df['الكود'] == student_row['الكود'], month] = updated_payment_status[month]
+                                self.groups_df[self.current_group].loc[student_index, month] = updated_payment_status[month]
                             
-                            self.groups_df[self.current_group] = df
+                            # حفظ البيانات فوراً
                             self.save_data()
                             st.success("تم تحديث حالة الدفع بنجاح!")
                             time.sleep(1)
@@ -739,12 +771,14 @@ class StudentAttendanceSystem:
                     st.subheader("إدارة الاختبارات")
                     
                     # عرض الاختبارات الحالية
-                    if pd.notna(student_row['الاختبارات']) and student_row['الاختبارات'] != '':
+                    current_tests = student_row['الاختبارات']
+                    if pd.notna(current_tests) and current_tests != '' and current_tests != 'nan':
                         st.markdown("#### نتائج الاختبارات الحالية")
-                        tests = student_row['الاختبارات'].split(';')
+                        tests = str(current_tests).split(';')
                         for test in tests:
-                            if test.strip():
-                                st.markdown(f"- {test.strip()}")
+                            test = test.strip()
+                            if test and test != 'nan':
+                                st.markdown(f"- {test}")
                     
                     # إضافة اختبار جديد
                     st.markdown("#### إضافة اختبار جديد")
@@ -754,15 +788,14 @@ class StudentAttendanceSystem:
                     if st.button("إضافة نتيجة الاختبار"):
                         if test_name and test_score:
                             new_test = f"{test_name}: {test_score}"
-                            current_tests = student_row['الاختبارات']
                             
-                            if pd.isna(current_tests) or current_tests == '':
+                            if pd.isna(current_tests) or current_tests == '' or current_tests == 'nan':
                                 updated_tests = new_test
                             else:
                                 updated_tests = f"{current_tests}; {new_test}"
                             
-                            df.loc[df['الكود'] == student_row['الكود'], 'الاختبارات'] = updated_tests
-                            self.groups_df[self.current_group] = df
+                            self.groups_df[self.current_group].loc[student_index, 'الاختبارات'] = updated_tests
+                            # حفظ البيانات فوراً
                             self.save_data()
                             st.success("تم إضافة نتيجة الاختبار بنجاح!")
                             time.sleep(1)
@@ -798,7 +831,10 @@ class StudentAttendanceSystem:
                     
                     if st.button("🗑️ حذف الطالب", key="delete_student_btn", type="primary"):
                         # حذف الطالب من المجموعة الحالية
-                        self.groups_df[self.current_group] = df[df['الكود'] != student_row['الكود']]
+                        self.groups_df[self.current_group] = self.groups_df[self.current_group].drop(student_index)
+                        self.groups_df[self.current_group] = self.groups_df[self.current_group].reset_index(drop=True)
+                        
+                        # حفظ البيانات فوراً
                         self.save_data()
                         st.success("تم حذف الطالب بنجاح!")
                         time.sleep(2)
@@ -824,7 +860,11 @@ class StudentAttendanceSystem:
                     st.markdown("---")
                     st.subheader("🔍 البحث عن طالب معين")
                     
-                    # خيارات البحث: بالكود أو بالاسم مع البحث الذكي
+                    # تحديد المجموعة الحالية مؤقتاً للبحث
+                    temp_current_group = self.current_group
+                    self.current_group = group_name
+                    
+                    # خيارات البحث
                     search_option = st.radio(f"ابحث باستخدام في {group_name}:", ["الكود", "الاسم"], horizontal=True, key=f"search_{group_name}")
                     
                     student_data = pd.DataFrame()
@@ -843,6 +883,9 @@ class StudentAttendanceSystem:
                             if suggestions:
                                 selected_name = st.selectbox("الاقتراحات", suggestions, key=f"name_suggestions_{group_name}")
                                 student_data = df[df['الاسم'] == selected_name] if selected_name else pd.DataFrame()
+                    
+                    # استعادة المجموعة الحالية
+                    self.current_group = temp_current_group
                     
                     if not student_data.empty:
                         student_row = student_data.iloc[0]
@@ -878,22 +921,26 @@ class StudentAttendanceSystem:
                                     st.markdown(f"- {month.replace('_', ' ')} ❌")
                         
                         # عرض تواريخ الحضور
-                        if pd.notna(student_row['تواريخ_الحضور']) and student_row['تواريخ_الحضور'] != '':
+                        attendance_dates = student_row['تواريخ_الحضور']
+                        if pd.notna(attendance_dates) and attendance_dates != '' and attendance_dates != 'nan':
                             st.markdown("#### تواريخ الحضور")
-                            dates = student_row['تواريخ_الحضور'].split(';')
+                            dates = str(attendance_dates).split(';')
                             st.markdown('<div class="attendance-dates">', unsafe_allow_html=True)
                             for i, date_str in enumerate(dates, 1):
-                                if date_str.strip():
-                                    st.markdown(f"- الحصة {i}: {date_str.strip()}")
+                                date_str = date_str.strip()
+                                if date_str and date_str != 'nan':
+                                    st.markdown(f"- الحصة {i}: {date_str}")
                             st.markdown('</div>', unsafe_allow_html=True)
                         
                         # عرض نتائج الاختبارات
-                        if pd.notna(student_row['الاختبارات']) and student_row['الاختبارات'] != '':
+                        test_results = student_row['الاختبارات']
+                        if pd.notna(test_results) and test_results != '' and test_results != 'nan':
                             st.markdown("#### نتائج الاختبارات")
-                            tests = student_row['الاختبارات'].split(';')
+                            tests = str(test_results).split(';')
                             for test in tests:
-                                if test.strip():
-                                    st.markdown(f"- {test.strip()}")
+                                test = test.strip()
+                                if test and test != 'nan':
+                                    st.markdown(f"- {test}")
                         
                         st.markdown('</div>', unsafe_allow_html=True)
                     
@@ -903,7 +950,7 @@ class StudentAttendanceSystem:
                     
                     total_students = len(df)
                     total_attendance = df['الحصص_الحاضرة'].sum()
-                    avg_attendance = df['الحصص_الحاضرة'].mean()
+                    avg_attendance = df['الحصص_الحاضرة'].mean() if total_students > 0 else 0
                     total_paid_months = df[self.months].sum().sum()
                     
                     cols = st.columns(4)
@@ -941,17 +988,23 @@ class StudentAttendanceSystem:
                         """, unsafe_allow_html=True)
                     
                     # مخطط حالات الدفع
-                    st.subheader("حالات الدفع للأشهر")
-                    paid_counts = df[self.months].sum()
-                    
-                    fig = px.bar(
-                        x=[m.replace('_', ' ') for m in self.months],
-                        y=paid_counts.values,
-                        labels={'x': 'الشهر', 'y': 'عدد الطلاب الذين دفعوا'},
-                        color=paid_counts.values,
-                        color_continuous_scale='blugrn'
-                    )
-                    st.plotly_chart(fig, use_container_width=True, key=f"plotly_{group_name}_{i}")
+                    if total_students > 0:
+                        st.subheader("حالات الدفع للأشهر")
+                        paid_counts = df[self.months].sum()
+                        
+                        fig = px.bar(
+                            x=[m.replace('_', ' ') for m in self.months],
+                            y=paid_counts.values,
+                            labels={'x': 'الشهر', 'y': 'عدد الطلاب الذين دفعوا'},
+                            color=paid_counts.values,
+                            color_continuous_scale='blues'
+                        )
+                        fig.update_layout(
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font_color='white'
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key=f"plotly_{group_name}_{i}")
                     
                     # عرض بيانات الطلاب
                     st.subheader("بيانات جميع الطلاب")
@@ -964,10 +1017,13 @@ class StudentAttendanceSystem:
                     
                     st.dataframe(display_df, use_container_width=True)
                     
+                    # إنشاء ملف CSV للتصدير
+                    csv_data = df.to_csv(index=False, encoding='utf-8-sig')
+                    
                     st.download_button(
-                        label=f"📥 تصدير بيانات {group_name} لملف إكسل",
-                        data=df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
-                        file_name=f"students_data_{group_name}.csv",
+                        label=f"📥 تصدير بيانات {group_name} لملف CSV",
+                        data=csv_data,
+                        file_name=f"students_data_{group_name}_{date.today()}.csv",
                         mime="text/csv",
                         key=f"export_{group_name}"
                     )
