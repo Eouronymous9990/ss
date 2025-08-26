@@ -26,7 +26,7 @@ class StudentAttendanceSystem:
         
         # تهيئة اتصال Google Sheets
         self.init_google_sheets()
-        
+        self.current_group = "المجموعة_الافتراضية"
         # تحميل البيانات أولاً قبل إعداد الواجهة
         self.load_data()
         self.setup_ui()
@@ -85,8 +85,7 @@ class StudentAttendanceSystem:
                             df = pd.DataFrame(records)
                             
                             # تصحيح الأعمدة إذا كان هناك خطأ إملائي
-                            if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
-                                df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
+                            
                             
                             # إضافة الأعمدة المفقودة
                             required_columns = [
@@ -1080,4 +1079,5 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
+
 
