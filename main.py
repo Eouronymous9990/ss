@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import date, datetime
+from datetime import date
 from PIL import Image
 import numpy as np
 import cv2
@@ -9,14 +9,12 @@ import qrcode
 from io import BytesIO
 import time
 import plotly.express as px
-import gspread
-from google.oauth2.service_account import Credentials
-from oauth2client.service_account import ServiceAccountCredentials
 
 class StudentAttendanceSystem:
     def __init__(self):
         st.set_page_config(page_title="نظام حضور الطلاب", layout="wide", page_icon="🎓")
-        
+        self.excel_path = "students_data.xlsx"
+        self.current_group = None
         # تعريف أسماء الأشهر الجديدة
         self.months = [
             'يوليو_2025', 'أغسطس_2025', 'سبتمبر_2025', 'أكتوبر_2025', 
@@ -24,129 +22,83 @@ class StudentAttendanceSystem:
             'مارس_2026', 'أبريل_2026', 'مايو_2026', 'يونيو_2026'
         ]
         
-        # تهيئة اتصال Google Sheets
-        self.init_google_sheets()
-        self.current_group = "المجموعة_الافتراضية"
         # تحميل البيانات أولاً قبل إعداد الواجهة
         self.load_data()
         self.setup_ui()
     
-    def init_google_sheets(self):
-        """تهيئة اتصال Google Sheets"""
+    def load_data(self):
+        """تحميل البيانات من ملف الإكسل مع معالجة الأخطاء المحسنة"""
         try:
-            # تحديد الـ scope
-            scope = ["https://spreadsheets.google.com/feeds",
-                    "https://www.googleapis.com/auth/drive",
-                    "https://www.googleapis.com/auth/spreadsheets"]
-            
-            # تحميل credentials (يجب تعديل المسار ليتناسب مع نظامك)
-            creds_path = r"C:\Users\zbook 17 g3\Desktop\chromatic-theme-470014-a7-1dcc78299d05.json"
-            
-            if os.path.exists(creds_path):
-                creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
-                self.client = gspread.authorize(creds)
+            if os.path.exists(self.excel_path):
+                # قراءة جميع الأوراق من ملف الإكسل
+                self.groups_df = pd.read_excel(self.excel_path, sheet_name=None)
                 
-                # ID الشيت من الرابط
-                self.SHEET_ID = "1tna1xqoBN3WBv7LJvCblyGUrozcA2FkMvk-VoT6UHic"
-                
-                # فتح الشيت الرئيسي
-                try:
-                    self.spreadsheet = self.client.open_by_key(self.SHEET_ID)
-                except gspread.SpreadsheetNotFound:
-                    st.error("لم يتم العثور على جدول البيانات. تأكد من ID الصحيح.")
+                # إذا كان الملف فارغاً أو به مشاكل
+                if not self.groups_df:
+                    self.initialize_default_group()
                     return
                 
-                print("تم الاتصال بـ Google Sheets بنجاح")
-            else:
-                st.error("ملف الاعتماد غير موجود. تأكد من المسار الصحيح.")
-                
-        except Exception as e:
-            st.error(f"خطأ في الاتصال بـ Google Sheets: {str(e)}")
-    
-    def load_data(self):
-        """تحميل البيانات من Google Sheets"""
-        try:
-            # الحصول على قائمة بأسماء الأوراق (المجموعات)
-            try:
-                worksheets = self.spreadsheet.worksheets()
-                sheet_names = [ws.title for ws in worksheets]
-            except:
-                sheet_names = []
-            
-            self.groups_df = {}
-            
-            if sheet_names:
-                for sheet_name in sheet_names:
+                # معالجة وتصحيح البيانات لكل مجموعة
+                for group_name in list(self.groups_df.keys()):
+                    df = self.groups_df[group_name]
+                    
+                    # تصحيح الأعمدة إذا كان هناك خطأ إملائي
+                    if 'رقم_الهاتf' in df.columns and 'رقم_الهاتف' not in df.columns:
+                        df.rename(columns={'رقم_الهاتf': 'رقم_الهاتف'}, inplace=True)
+                    
+                    # إنشاء الأعمدة الأساسية المطلوبة
+                    required_columns = [
+                        'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
+                    ] + self.months + [
+                        'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
+                    ]
+                    
+                    # إضافة الأعمدة المفقودة
+                    for col in required_columns:
+                        if col not in df.columns:
+                            if col in self.months:
+                                df[col] = False
+                            elif col == 'الحصص_الحاضرة':
+                                df[col] = 0
+                            else:
+                                df[col] = ''
+                    
+                    # ترتيب الأعمدة بالترتيب الصحيح
+                    df = df[required_columns]
+                    
+                    # تحويل أنواع البيانات
+                    df['الكود'] = df['الكود'].astype(str)
+                    df['الاسم'] = df['الاسم'].astype(str)
+                    df['رقم_الهاتف'] = df['رقم_الهاتف'].astype(str)
+                    df['ولي_الامر'] = df['ولي_الامر'].astype(str)
+                    df['الحصص_الحاضرة'] = pd.to_numeric(df['الحصص_الحاضرة'], errors='coerce').fillna(0).astype(int)
+                    df['تواريخ_الحضور'] = df['تواريخ_الحضور'].astype(str).fillna('')
+                    df['ملاحظات'] = df['ملاحظات'].astype(str).fillna('')
+                    df['الاختبارات'] = df['الاختبارات'].astype(str).fillna('')
+                    
+                    # معالجة تاريخ التسجيل
                     try:
-                        worksheet = self.spreadsheet.worksheet(sheet_name)
-                        records = worksheet.get_all_records()
-                        
-                        if records:
-                            df = pd.DataFrame(records)
-                            
-                            # تصحيح الأعمدة إذا كان هناك خطأ إملائي
-                            
-                            
-                            # إضافة الأعمدة المفقودة
-                            required_columns = [
-                                'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
-                            ] + self.months + [
-                                'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
-                            ]
-                            
-                            for col in required_columns:
-                                if col not in df.columns:
-                                    if col in self.months:
-                                        df[col] = False
-                                    elif col == 'الحصص_الحاضرة':
-                                        df[col] = 0
-                                    else:
-                                        df[col] = ''
-                            
-                            # تحويل أنواع البيانات
-                            df['الكود'] = df['الكود'].astype(str)
-                            df['الاسم'] = df['الاسم'].astype(str)
-                            df['رقم_الهاتف'] = df['رقم_الهاتف'].astype(str)
-                            df['ولي_الامر'] = df['ولي_الامر'].astype(str)
-                            df['الحصص_الحاضرة'] = pd.to_numeric(df['الحصص_الحاضرة'], errors='coerce').fillna(0).astype(int)
-                            df['تواريخ_الحضور'] = df['تواريخ_الحضور'].astype(str).fillna('')
-                            df['ملاحظات'] = df['ملاحظات'].astype(str).fillna('')
-                            df['الاختبارات'] = df['الاختبارات'].astype(str).fillna('')
-                            
-                            # معالجة تاريخ التسجيل
-                            try:
-                                df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل'], errors='coerce').dt.date
-                                df['تاريخ_التسجيل'] = df['تاريخ_التسجيل'].fillna(date.today())
-                            except:
-                                df['تاريخ_التسجيل'] = date.today()
-                            
-                            # التأكد من أن أعمدة الأشهر من النوع المنطقي
-                            for month in self.months:
-                                df[month] = df[month].astype(bool)
-                            
-                            self.groups_df[sheet_name] = df
-                        else:
-                            # إنشاء DataFrame فارغ إذا كانت الورقة فارغة
-                            required_columns = [
-                                'الكود', 'الاسم', 'رقم_الهاتف', 'ولي_الامر', 'الحصص_الحاضرة'
-                            ] + self.months + [
-                                'تواريخ_الحضور', 'تاريخ_التسجيل', 'ملاحظات', 'الاختبارات'
-                            ]
-                            self.groups_df[sheet_name] = pd.DataFrame(columns=required_columns)
-                            
-                    except Exception as e:
-                        print(f"خطأ في تحميل ورقة {sheet_name}: {str(e)}")
-                        continue
-            
-            # إذا لم توجد أوراق، إنشاء مجموعة افتراضية
-            if not self.groups_df:
-                self.initialize_default_group()
-            else:
+                        df['تاريخ_التسجيل'] = pd.to_datetime(df['تاريخ_التسجيل'], errors='coerce').dt.date
+                        df['تاريخ_التسجيل'] = df['تاريخ_التسجيل'].fillna(date.today())
+                    except:
+                        df['تاريخ_التسجيل'] = date.today()
+                    
+                    # التأكد من أن أعمدة الأشهر من النوع المنطقي
+                    for month in self.months:
+                        df[month] = df[month].astype(bool)
+                    
+                    # تحديث البيانات في المجموعة
+                    self.groups_df[group_name] = df
+                
                 # تحديد المجموعة الحالية
                 if self.current_group is None or self.current_group not in self.groups_df:
                     self.current_group = list(self.groups_df.keys())[0]
                 
                 print(f"تم تحميل البيانات بنجاح. عدد المجموعات: {len(self.groups_df)}")
+                
+            else:
+                print("ملف البيانات غير موجود، سيتم إنشاء ملف جديد")
+                self.initialize_default_group()
                 
         except Exception as e:
             print(f"حدث خطأ في تحميل البيانات: {str(e)}")
@@ -171,48 +123,55 @@ class StudentAttendanceSystem:
         print("تم إنشاء مجموعة افتراضية جديدة")
     
     def save_data(self):
-        """حفظ البيانات في Google Sheets"""
+        """حفظ البيانات في ملف الإكسل مع معالجة محسنة للأخطاء"""
         try:
-            # الحصول على الأوراق الحالية
-            current_sheets = self.spreadsheet.worksheets()
-            current_sheet_names = [ws.title for ws in current_sheets]
+            # إنشاء نسخة احتياطية من الملف الحالي إذا كان موجود
+            if os.path.exists(self.excel_path):
+                backup_path = f"{self.excel_path}.backup"
+                try:
+                    import shutil
+                    shutil.copy2(self.excel_path, backup_path)
+                except:
+                    pass
             
-            for group_name, df in self.groups_df.items():
-                # إنشاء نسخة للحفظ
-                df_to_save = df.copy()
-                
-                # تحويل التواريخ لنص للحفظ
-                if 'تاريخ_التسجيل' in df_to_save.columns:
-                    df_to_save['تاريخ_التسجيل'] = df_to_save['تاريخ_التسجيل'].astype(str)
-                
-                # استبدال القيم الفارغة بنصوص فارغة
-                df_to_save = df_to_save.fillna('')
-                
-                # تحويل DataFrame إلى قائمة من القوائم
-                data_to_save = [df_to_save.columns.tolist()] + df_to_save.values.tolist()
-                
-                # التحقق إذا كانت الورقة موجودة
-                if group_name in current_sheet_names:
-                    worksheet = self.spreadsheet.worksheet(group_name)
-                    # مسح الورقة الحالية
-                    worksheet.clear()
-                else:
-                    # إنشاء ورقة جديدة
-                    worksheet = self.spreadsheet.add_worksheet(title=group_name, rows=1000, cols=20)
-                
-                # تحديث البيانات
-                worksheet.update('A1', data_to_save)
-                
-                print(f"تم حفظ بيانات المجموعة {group_name} بنجاح")
+            # حفظ البيانات
+            with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
+                for group_name, df in self.groups_df.items():
+                    # إنشاء نسخة للحفظ
+                    df_to_save = df.copy()
+                    
+                    # تحويل التواريخ لنص للحفظ
+                    if 'تاريخ_التسجيل' in df_to_save.columns:
+                        df_to_save['تاريخ_التسجيل'] = df_to_save['تاريخ_التسجيل'].astype(str)
+                    
+                    # استبدال القيم الفارغة بنصوص فارغة
+                    df_to_save = df_to_save.fillna('')
+                    
+                    # حفظ البيانات في الورقة المناسبة
+                    df_to_save.to_excel(writer, sheet_name=group_name, index=False)
             
-            print("تم حفظ جميع البيانات بنجاح في Google Sheets")
+            print(f"تم حفظ البيانات بنجاح في {self.excel_path}")
+            
+            # التحقق من الحفظ
+            if os.path.exists(self.excel_path):
+                file_size = os.path.getsize(self.excel_path)
+                print(f"حجم الملف المحفوظ: {file_size} بايت")
             
         except Exception as e:
             print(f"خطأ في حفظ البيانات: {str(e)}")
             st.error(f"خطأ في حفظ البيانات: {str(e)}")
+            
+            # محاولة استعادة النسخة الاحتياطية
+            backup_path = f"{self.excel_path}.backup"
+            if os.path.exists(backup_path):
+                try:
+                    import shutil
+                    shutil.copy2(backup_path, self.excel_path)
+                    print("تم استعادة النسخة الاحتياطية")
+                except:
+                    pass
     
     def setup_ui(self):
-        # ... (نفس كود setup_ui السابق بدون تغيير)
         st.markdown("""
         <style>
             .stApp {
@@ -287,7 +246,10 @@ class StudentAttendanceSystem:
         st.title("🎓 نظام حضور الطلاب")
         
         # عرض حالة آخر حفظ
-        st.info("📁 البيانات متصلة بـ Google Sheets - يتم الحفظ تلقائياً")
+        if os.path.exists(self.excel_path):
+            last_modified = os.path.getmtime(self.excel_path)
+            last_modified_date = date.fromtimestamp(last_modified)
+            st.info(f"📁 آخر حفظ للبيانات: {last_modified_date}")
         
         # إدارة المجموعات في الشريط الجانبي
         with st.sidebar:
@@ -323,20 +285,12 @@ class StudentAttendanceSystem:
             if len(self.groups_df) > 1:
                 group_to_delete = st.selectbox("اختر مجموعة للحذف", current_groups)
                 if st.button("🗑️ حذف المجموعة") and group_to_delete:
-                    try:
-                        # حذف الورقة من Google Sheets
-                        worksheet = self.spreadsheet.worksheet(group_to_delete)
-                        self.spreadsheet.del_worksheet(worksheet)
-                        
-                        # حذف من البيانات المحلية
-                        del self.groups_df[group_to_delete]
-                        self.current_group = list(self.groups_df.keys())[0]
-                        
-                        st.success(f"تم حذف المجموعة '{group_to_delete}' بنجاح!")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"خطأ في حذف المجموعة: {str(e)}")
+                    del self.groups_df[group_to_delete]
+                    self.current_group = list(self.groups_df.keys())[0]
+                    self.save_data()
+                    st.success(f"تم حذف المجموعة '{group_to_delete}' بنجاح!")
+                    time.sleep(1)
+                    st.rerun()
             
             # زر حفظ يدوي
             if st.button("💾 حفظ البيانات يدوياً"):
@@ -354,8 +308,7 @@ class StudentAttendanceSystem:
             self.manage_students_tab()
         with tabs[3]:
             self.view_analytics_tab()
-    
-    # ... (بقية الدوال تبقى كما هي بدون تغيير)
+            
     def scan_qr_tab(self):
         if self.current_group not in self.groups_df:
             st.warning("الرجاء اختيار مجموعة صالحة")
@@ -896,7 +849,7 @@ class StudentAttendanceSystem:
         st.header("📊 الإحصائيات")
         
         # إنشاء تبويبات لكل مجموعة
-        group_tabs = st.tabs([f"{group_name}" for group_name in self.groups_df.items()])
+        group_tabs = st.tabs([f"{group_name}" for group_name in self.groups_df.keys()])
         
         for i, (group_name, df) in enumerate(self.groups_df.items()):
             with group_tabs[i]:
@@ -1079,5 +1032,6 @@ class StudentAttendanceSystem:
 
 if __name__ == "__main__":
     system = StudentAttendanceSystem()
+
 
 
